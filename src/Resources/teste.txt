@@ -141,6 +141,8 @@ namespace TesteConsole
             Application.Run(CriarForm());
         }
     }
+    
+    // Creditos ao WebServer a @David LINK: https://codehosting.net/blog/BlogEngine/post/Simple-C-Web-Server
     public class WebServer
     {
         private readonly HttpListener _listener = new HttpListener();
