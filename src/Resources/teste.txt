@@ -1,0 +1,208 @@
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using System.Drawing;
+using System.Text;
+using System.Threading;
+using System.Windows.Forms;
+using System.Net;
+using System.IO;
+using Microsoft.CSharp;
+using System.Reflection;
+using System.Windows;
+namespace TesteConsole
+{
+    class Program
+    {
+
+        struct Config
+        {
+            public static Size Tamanho = new Size({WIDTH}, {HEIGTH});
+            public static bool FullScreen = {FULLSCREEN};
+            public static bool Borda = {BORDA};
+            public static bool TopMost = {TOPMOST};
+            public static bool ScrollBar = {SCROLLBAR};
+	    public static bool MaxBox = {MAXBOX};
+	    public static bool MinBox = {MINBOX};
+        }
+        [DllImport("kernel32.dll")]
+        static extern IntPtr GetConsoleWindow();
+
+        [DllImport("user32.dll")]
+        static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+        const int SW_HIDE = 0;
+        const int SW_SHOW = 5;
+
+        static string SiteURL = "http://localhost:8081/";
+        static string PastaTemp = "";
+        static WebServer ws;
+        static string[] Diretorios;
+        static byte[] Arquivo = {BYTES}
+        static Random rand = new Random();
+
+        static Form CriarForm()
+        {
+            Form f = new Form();
+            WebBrowser wb = new WebBrowser();
+            wb.Dock = DockStyle.Fill;
+            f.Controls.Add(wb);
+            f.Size = Config.Tamanho;
+			//{ICONE}
+	    f.MaximizeBox = Config.MaxBox;
+	    f.MinimizeBox = Config.MinBox;
+            wb.ScrollBarsEnabled = Config.ScrollBar;
+            f.Load += (a, b) =>
+            {
+                List<string> Diretorios = new List<string>(Directory.GetDirectories(PastaTemp+"site/", "*", SearchOption.AllDirectories));
+                for (int i = 0; i < Diretorios.Count; i++)
+                {
+                    Diretorios[i] = SiteURL + Diretorios[i].Replace("\\", "/") + "/";
+                }
+                Diretorios.Add(SiteURL + "site/");
+                SiteURL = SiteURL + "site/";
+                ws = new WebServer(Diretorios.ToArray(), SendResponse);
+                ws.Run();
+                wb.Navigate(SiteURL + "index.html");
+            };
+            f.FormClosing += (a, b) => {
+				try{
+                ws.Stop();
+				}
+				catch{
+				}
+                Directory.Delete(PastaTemp, true);
+            };
+			
+            wb.DocumentCompleted += (a, b) =>
+            {
+                f.Text = wb.DocumentTitle;
+            };
+            if (Config.Borda)
+            {
+                f.FormBorderStyle = FormBorderStyle.None;
+            }
+            if (Config.FullScreen)
+            {
+                f.FormBorderStyle = FormBorderStyle.None;
+                f.WindowState = FormWindowState.Maximized;
+                f.Size = Screen.PrimaryScreen.Bounds.Size;
+            }
+            f.TopMost = Config.TopMost;
+           
+         
+            return f;
+        }
+        static byte[] SendResponse(HttpListenerRequest request)
+        {
+            string Local = PastaTemp + "site\\" + request.Url.ToString().Replace(SiteURL, "");
+            try
+            {
+                if (Local != "" && File.Exists(Local))
+                {
+                    return File.ReadAllBytes(Local);
+                }
+            }
+            catch { }
+            return Encoding.UTF8.GetBytes("<html><head><title>Pagina nao encontrada</title></head><body><h1>404 Pagina nao encontrada</h1></body></html>");
+        }
+       
+        /*Gera string */
+        static string GerarString(int Tam)
+        {
+            string Ret = "";
+            string abcd = "qwertyuioplkjhgfdsazxcvbnm0123654789";
+            for (int i = 0; i < Tam; i++)
+                Ret += abcd[rand.Next(0, abcd.Length)];
+            return Ret;
+        }
+        [STAThread]
+        static void Main(string[] args)
+        {
+            /* Cria pasta temporaria*/
+            string _temp = Path.GetTempPath();
+            _temp += GerarString(9) + "\\";
+            while(Directory.Exists(_temp))
+            {
+                _temp = Path.GetTempPath();
+                _temp += GerarString(9) + "\\";
+            }
+            Directory.CreateDirectory(_temp);
+            PastaTemp = _temp;
+            /*Extra arquivo com site*/
+            File.WriteAllBytes( _temp + "arq.zip" , Arquivo);
+            System.IO.Compression.ZipFile.ExtractToDirectory(_temp + "arq.zip", _temp);
+            /*Esconde console*/
+            var handle = GetConsoleWindow();
+            ShowWindow(handle, SW_HIDE);
+            /*Inicia Formulario*/
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
+            Application.Run(CriarForm());
+        }
+    }
+    public class WebServer
+    {
+        private readonly HttpListener _listener = new HttpListener();
+        private readonly Func<HttpListenerRequest, byte[]> _responderMethod;
+
+        public WebServer(string[] prefixes, Func<HttpListenerRequest, byte[]> method)
+        {
+		try{
+            if (!HttpListener.IsSupported)
+                throw new NotSupportedException(
+                    "Needs Windows XP SP2, Server 2003 or later.");
+            if (prefixes == null || prefixes.Length == 0)
+                throw new ArgumentException("prefixes");
+            if (method == null)
+                throw new ArgumentException("method");
+            foreach (string s in prefixes)
+                _listener.Prefixes.Add(s);
+            _responderMethod = method;
+            _listener.Start();
+			}catch{
+				//MessageBox.Show("Alguma instancia ja esta aberta a porta utilizada!");
+			}
+        }
+
+        public WebServer(Func<HttpListenerRequest, byte[]> method, params string[] prefixes)
+            : this(prefixes, method) { }
+
+        public void Run()
+        {
+            ThreadPool.QueueUserWorkItem((o) =>
+            {
+                try
+                {
+                    while (_listener.IsListening)
+                    {
+                        ThreadPool.QueueUserWorkItem((c) =>
+                        {
+                            var ctx = c as HttpListenerContext;
+                            try
+                            {
+                                byte[] buf = _responderMethod(ctx.Request);
+                                ctx.Response.ContentLength64 = buf.Length;
+                                ctx.Response.OutputStream.Write(buf, 0, buf.Length);
+                            }
+                            catch { }
+                            finally
+                            {
+
+                                ctx.Response.OutputStream.Close();
+                            }
+                        }, _listener.GetContext());
+                    }
+                }
+                catch { }
+            });
+        }
+
+        public void Stop()
+        {
+            _listener.Stop();
+            _listener.Close();
+        }
+    }
+}
+
