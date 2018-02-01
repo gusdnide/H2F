@@ -52,6 +52,7 @@ namespace TesteConsole
 	    f.MaximizeBox = Config.MaxBox;
 	    f.MinimizeBox = Config.MinBox;
             wb.ScrollBarsEnabled = Config.ScrollBar;
+	    wb.ScriptErrorsSuppressed = true;
             f.Load += (a, b) =>
             {
                 List<string> Diretorios = new List<string>(Directory.GetDirectories(PastaTemp+"site/", "*", SearchOption.AllDirectories));
